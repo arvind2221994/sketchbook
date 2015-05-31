@@ -1,0 +1,102 @@
+#define B 843
+#define R 20
+float rpm[2];
+double velocity1,velocity2;
+
+/*---------class for motor-----------------*/
+class Motor
+{
+  unsigned int br_pin, dir_pin, pwm_pin, en_pin;
+  boolean aclk;
+
+public:
+  int reset;
+  Motor();
+  Motor(unsigned int pin1, unsigned int pin2, unsigned int pin3, boolean stat1)
+  {
+    reset=0;
+    pwm_pin=pin1;
+    en_pin=pin2;
+    dir_pin=pin3;
+    aclk=stat1;
+        
+
+   // pinMode(br_pin, OUTPUT);
+    pinMode(dir_pin, OUTPUT);
+    pinMode(pwm_pin, OUTPUT);
+    pinMode(en_pin, OUTPUT);
+
+    digitalWrite(en_pin, LOW);
+    //digitalWrite(br_pin, LOW);
+    digitalWrite(dir_pin,HIGH);
+    analogWrite(pwm_pin,30);
+  }
+
+  void enable(boolean en)
+  {
+    digitalWrite(en_pin, en);
+  }
+
+  void motor_move(int vel)
+  {
+    //brake(LOW);
+    int val;
+    if(vel > 0)
+      digitalWrite(dir_pin, aclk);
+    else if(vel < 0)
+      digitalWrite(dir_pin, !aclk);
+    val = constrain(abs(vel), 0, 200);
+    val = map(val, 0, 200, 26, 255);
+    analogWrite(pwm_pin, val);
+  }
+
+//  void brake(boolean state, int strength=320)
+//  {
+//    enable(HIGH);
+//    int str = map(abs(strength), 0, 360, 25, 225);
+//    digitalWrite(br_pin, !state);
+//    analogWrite(pwm_pin,str);
+//  }
+
+}
+
+motors[2] = {
+  Motor(9, 23, 25, 1), Motor(8, 22, 24, 0)}; //motors 1, 2
+
+//motors[4] = { Motor(8, 23, 25, 0), Motor(9, 22, 24, 1)}; //motors 1, 2
+/*-----------------------
+ motor 1 - 8, 23, 25, 27 --- 8 - pwm, 23 - enable, 25 - dir
+ motor 2 - 9, 22, 26, 27 --- 9 - pwm, 22 - enable, 24 - dir
+
+ -------------------------*/
+void bot_motion(float v, float w)
+{ 
+  //assuming v in input is cm/sec
+  rpm[0]=(v+w*B)*60/(2*PI)/R;
+  rpm[1]=(v-w*B)*60/(2*PI)/R;
+
+
+  for(int i=0;i<2;i++) 
+    motors[i].motor_move(rpm[i]);
+
+}
+
+//void bot_brake(int str)
+//{
+//  for(int i=0;i<4;i++)
+  //    motors[i].brake(HIGH, str);   
+//}
+
+void setup()
+{
+  Serial.begin(9600);
+analogReadResolution(12);
+  motors[0].enable(HIGH);
+  motors[1].enable(HIGH);
+}
+void loop()
+{
+  //   bot_brake(320);
+  bot_motion(100,0); //velocity in cm/sec && angular velocity in radians/sec;
+}
+
