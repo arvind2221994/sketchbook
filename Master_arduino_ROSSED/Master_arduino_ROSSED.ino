@@ -2,6 +2,7 @@
 #define USE_USBCON
 
 #include <Wire.h>
+
 //#include <Motor.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_HMC5883_U.h>
@@ -9,11 +10,11 @@
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/TwistStamped.h>
 #include <tf/transform_broadcaster.h>
+
 #include <litemsgs/lite.h>
 #include <std_msgs/String.h>
 #include <tf/tf.h>
 #include <stdlib.h>
-
 
 //#include <sstream>
 #include <string>
@@ -27,26 +28,25 @@ ros::Publisher odo("odom_sub", &odom);
 #define B 84.3
 #define C 251.32  // Circumference of wheel in cm
 #define R 20    // Wheel Radius in cm
-#define TPR 10000
+#define TPRL 21504
+#define TPRR  21504
+#define ROS_ON
+#define DEBUG_LEVEL 2
 double dT;
 
 float rpm[2];
-double velocity1, velocity2; double pose_x = 0, pose_y = 0, dx = 0, dy = 0, dth = 0;
-double vel = 0, velX = 0, velY = 0, velTh = 0;
-float setvelocity = 0;
-
-float Vx = 0, Vy = 0, vx = 0, vy = 0;
-double ang_velDesired = 0;//Time
-float velDesired = 0;
-double omega, theta = 0, theta_old = 0;
+double pose_x = 0, pose_y = 0, dx = 0, dy = 0, dth = 0;
+double velX = 0,velY = 0,velTh = 0;
+float vx = 0;
+double ang_velDesired = 0,velDesired = 0;
+double omega= 0,setvelocity = 0;
+double theta = 0, theta_old = 0;
 float initialheading = 0, headin = 0;
-unsigned long now;
-double lastTime = 0;
+unsigned long now,lastTime = 0;
 
-
-int ticks1, ticks2;
-int oticks1 = 0, oticks2 = 0;
-double ntr, ntl, DistR, DistL, Dist;
+int ticks1= 0,ticks2= 0,oticks1 = 0,oticks2 = 0;
+double ntr, ntl;
+double DistR, DistL, Dist;
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 
 
@@ -97,14 +97,6 @@ class Motor
       analogWrite(pwm_pin, val);
     }
 
-    //  void brake(boolean state, int strength=320)
-    //  {
-    //    enable(HIGH);
-    //    int str = map(abs(strength), 0, 360, 25, 225);
-    //    digitalWrite(br_pin, !state);
-    //    analogWrite(pwm_pin,str);
-    //  }
-
 };
 
 //Due QEI
@@ -127,24 +119,20 @@ void velCallback(const geometry_msgs::Twist& vel_msg)
 {
   vx = vel_msg.linear.x;
   ang_velDesired = vel_msg.angular.z;
-
-  Vx = vx;
-
-  if (Vx < 0) {
-    velDesired = - Vx;
+  velDesired = vx;
+  if (vx < 0) {
+    velDesired = - vx;
   }
+  printr(String(vel_msg.angular.z), 0);
 }
 
 void manvelCallback()
 {
-  vx = 0.10;
-  vy = 0.0;
-  ang_velDesired = 0.0;
-
-  Vx = vx;
-
-  if (Vx < 0) {
-    velDesired = - Vx;
+  vx = 0.25;
+  ang_velDesired = 0;
+  velDesired = vx;
+  if (vx < 0) {
+    velDesired = - vx;
   }
 }
 
@@ -154,37 +142,36 @@ void bot_motion(float v, float w)
   //assuming v in input is cm/sec
   rpm[0] = (v + w * B) * 60 / (2 * PI) / R;
   rpm[1] = (v - w * B) * 60 / (2 * PI) / R;
-  printr("RPM-L : " + String(rpm[0]));
-  printr("RPM-R : " + String(rpm[1]));
-
+  printr("RPM-L : " + String(rpm[0]), 0);
+  printr("RPM-R : " + String(rpm[1]), 0);
+  
   for (int i = 0; i < 2; i++)
     motors[i].motor_move(rpm[i]);
 
 }
 
-void printr(String s){
-   nh.loginfo(s.c_str());
+void printr(String s, int level) {
+#ifdef ROS_ON
+  if (level >= DEBUG_LEVEL)
+    nh.loginfo(s.c_str());
+#else
+  if (level >= DEBUG_LEVEL)
+    Serial.println(s);
+#endif
 }
-
-//void bot_brake(int str)
-//{
-//  for(int i=0;i<4;i++)
-//    motors[i].brake(HIGH, str);
-//} 
-
-
 
 void setup()
 {
   nh.initNode();
   nh.advertise(odo);
-  motors[0].enable(HIGH);
-  motors[1].enable(HIGH);
-
+  //motors[0].enable(HIGH);
+  //motors[1].enable(HIGH);
+    motors[0].enable(LOW);
+    motors[1].enable(LOW);
 
   Wire.begin();  // join i2c bus (address optional for master)
   delay(250);
-  Serial.begin(115200);   ///////////////57600
+  Serial.begin(115200);
   delay(500);
   /*---------Enabling Registers for QEI-----------------*/
   // activate peripheral functions for quad pins
@@ -197,12 +184,12 @@ void setup()
   // select XC0 as clock source and set capture mode
   REG_TC0_CMR0 = 5;
   // activate quadrature encoder and position measure mode, no filters
-  REG_TC0_BMR = (1 << 9) | (1 << 8) | (0 << 12); //we are detecting only half resolution
+  REG_TC0_BMR = (1 << 9) | (1 << 8) | (1 << 12); //we are detecting only half resolution
   // enable the clock (CLKEN=1) and reset the counter (SWTRG=1)
   // SWTRG = 1 necessary to start the clock!!
   REG_TC0_CCR0 = 5;
 
-
+  /********************** compas thing ************/
   if (!mag.begin()) {
     while (1) {
       //ros::rospy.logerr("debug");
@@ -210,21 +197,17 @@ void setup()
         break;
     }
   }
-
   sensors_event_t event;
   mag.getEvent(&event);
-
   headin = atan2(event.magnetic.x, event.magnetic.y);
-
   if (headin < 0)
     headin += 2 * PI;
-
   // Check for wrap due to addition of declination.
   if (headin > 2 * PI)
     headin -= 2 * PI;
-
   // Convert radians to degrees for readability.
   initialheading = headin;
+  /**********************************************/
 
   nh.subscribe(sub);
   nh.spinOnce();
@@ -237,18 +220,10 @@ void loop()
   dT = (double)(now - lastTime) / 1000;
   if (dT >= 0.015) {
 
-    lastTime = now;
     oticks1 = ticks1;
     oticks2 = ticks2;
-
     ticks1 = -(int)REG_TC0_CV0;
-
-    //manvelCallback();
-
-    //  Serial.print(REG_TC0_CV0,DEC);
-    //    Serial.print(ticks1);
-    //    Serial.print(",");
-    //delay(500);
+    //Serial.print(REG_TC0_CV0,DEC);
 
     Wire.requestFrom(2, 9);    // request 6 bytes from slave device #2
     String a;
@@ -257,36 +232,42 @@ void loop()
       //Serial.print("c");
       char c = Wire.read(); // receive a byte as character
       if (c != 's') {
-        a += c;
-        // print the character
+        a += c; // print the character
       }
       else {
-
         break;
       }
     }
     //Serial.println(a);
-    //Serial.println(a);
     ticks2 = atoi(a.c_str());
+    printr("ticks1 : " + String(ticks1), 3);
+    printr("ticks2 : " + String(ticks2), 3);
+    lastTime = now;
+
+    //manvelCallback();
+
     setvelocity = velDesired * 100;
     omega = ang_velDesired;
-    bot_motion(setvelocity,omega);
-    
-    
+    bot_motion(setvelocity, omega);
+
+
     ntl = ticks1 - oticks1;  // l,r doubt - Cleared!
     ntr = ticks2 - oticks2;
-    DistR = 2 * PI * R * ntr / TPR; // 10000 ticks per rotation
-    DistL = 2 * PI * R * ntl / TPR;
+    DistR = 2 * PI * R * ntr / TPRR; // 10000 ticks per rotation
+    DistL = 2 * PI * R * ntl / TPRL;
     Dist = (DistR + DistL) / 2;
 
-         printr("velocity : " +String(setvelocity));
-         printr("ang-velocity : " +String(omega));
+    printr("ntl : " + String (ntl), 1);
+    printr("ntr : " + String(ntr), 1);
+    printr("Distr : " + String(DistL), 1);
+    printr("Distl : " + String(DistR), 1);
+
+    printr("velocity : " + String(setvelocity), 0);
+    printr("ang-velocity : " + String(omega), 0);
 
     /**********************COMPASS***************************/
-
     sensors_event_t event;
     mag.getEvent(&event);
-
     headin = atan2(event.magnetic.x, event.magnetic.y);
     float declinationAngle = 0;
     headin += declinationAngle;
@@ -294,34 +275,30 @@ void loop()
       headin += 2 * PI;
 
     }
-    // Check for wrap due to addition of declination.
+    //Check for wrap due to addition of declination.
     if (headin > 2 * PI) {
       headin -= 2 * PI;
     }
-
     theta = headin - initialheading;
+    /********************************************************/
 
-    float headingDegrees = headin * 180 / M_PI;
-    //    Serial.print("Heading (degrees): "); Serial.println(headingDegrees);
-    //    Serial.println(theta);
-    //    Serial.println(headin);
-    //    Serial.println();
-
-    //velTh = (theta-theta_old)/dT;
-    //theta_old = theta;
-    velTh =  omega;
-
+    //velTh =  omega;
+    velTh = (theta - theta_old)/dT;
+    theta_old = theta;
+    
+    
+    
+    
+    printr("theta : " + String(theta), 1);
     dy = Dist * sin(theta);
     dx = Dist * cos(theta);
-
     velX = dx / dT;
     velY = dy / dT;
-
     pose_x += dx;
     pose_y += dy;
+    printr("pose_x : " + String(pose_x), 2);
+    printr("pose_y : " + String(pose_y), 2);
 
-
-    ////////////////////////////////////////////////////////////////////////////////
     geometry_msgs::Quaternion odom_quat;
     odom_quat = tf::createQuaternionFromYaw((theta * PI) / 180);
     odom.header.stamp = nh.now();
@@ -339,33 +316,8 @@ void loop()
     odom.twist.angular.y = 0;
     odom.twist.angular.z = velTh;
 
-    //publish the message   //ROS Publisher is here
+    //publish the message - ROS Publisher is here
     odo.publish(&odom);
-
-//    Serial.print(" ticks1 ");
-//    Serial.print(ticks1);
-//
-//    Serial.print(",");
-//
-//    Serial.print(" ticks2 ");
-//    Serial.println(ticks2);
-//
-//    Serial.print(",");
-//
-//    Serial.print(" pose_x ");
-//    Serial.print(pose_x);
-//
-//    Serial.print(",");
-//
-//    Serial.print(" pose_y ");
-//    Serial.println(pose_y);
-
-//    delay(500);
-//
-//    bot_motion(20, 0);
-
-
-    
   } //velocity in cm/sec && angular velocity in radians/sec;
   nh.spinOnce();
 }

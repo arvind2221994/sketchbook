@@ -36,7 +36,7 @@ void loop()
 {
  
  ticks = (int)(REG_TC0_CV0);
-enc_ticks=String(ticks);
+ enc_ticks=String(ticks);
  // delay(500);
  enc_ticks+='s';
  delay(100);
@@ -46,8 +46,7 @@ enc_ticks=String(ticks);
 
 void requestEvent()
 {
-  Wire.write(enc_ticks.c_str()); // respond with message of 6 bytes
-                       // as expected by master
+  Wire.write(enc_ticks.c_str()); // respond with message of 6 byte                      // as expected by master
  Serial.println(enc_ticks);
 }
 
