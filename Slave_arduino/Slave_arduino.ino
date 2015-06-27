@@ -22,7 +22,7 @@ void setup()
   // select XC0 as clock source and set capture mode
   REG_TC0_CMR0 = 5;
   // activate quadrature encoder and position measure mode, no filters
-  REG_TC0_BMR = (1 << 9) | (1 << 8) | (0 << 12);
+  REG_TC0_BMR = (1 << 9) | (1 << 8) | (1 << 12);
   // enable the clock (CLKEN=1) and reset the counter (SWTRG=1)
   // SWTRG = 1 necessary to start the clock!!
   REG_TC0_CCR0 = 5;

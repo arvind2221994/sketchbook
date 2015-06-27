@@ -69,7 +69,7 @@ E) ODOMETRY
 >> Check distance (Dist), pose and velocity calculations make sure they approx match v*dt
 >> Manually rotate the wheel by exact one rotation and check the ticks obtained (Whether they approx. match with TPRs set)
 >> Use this i2c code in Master in case UART communication fails 
-  /*********************** Slave Arduino Reset ****************************
+
     Wire.requestFrom(2, 9);    // request 6 bytes from slave device #2
     String a;
     
@@ -85,4 +85,12 @@ E) ODOMETRY
     
     init_ticksr = atoi(a.c_str());
 
-  /*************************************************************************/
+F) DEBUG PRIORITIES
+
+>> 0 - dtl,dtr,Dist:,DistR
+>> 1 - RPM-L,RPM-R
+>> 2 - setvelocity,omega
+>> 3 - pose_x,pose_y,theta
+>> 4 - ticksl,ticksr,theta
+>> 5 - RPMR,RPML
+*/

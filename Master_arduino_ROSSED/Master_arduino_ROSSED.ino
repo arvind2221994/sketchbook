@@ -31,35 +31,35 @@ ros::Publisher odom_pub("odom_sub", &odom);
 #define TPRL 21504  //Ticks per Rotation
 #define TPRR  21504
 
-#define ROS_ON 
-#define MOTOR_HIGH 
+#define ROS_ON
+//#define MOTOR_HIGH
 #define COMPASS_ON
-#define DEBUG_LEVEL 3
+#define DEBUG_PRIORITY 3 //Refer to Debug->section F
 double dT;
 
 float rpm[2];
 double pose_x = 0, pose_y = 0, dx = 0, dy = 0, dth = 0;
-double velX = 0,velY = 0,velTh = 0; //Global frame
+double velX = 0, velY = 0, velTh = 0; //Global frame
 float vx = 0; //Input velocity from ROS
-double ang_velDesired = 0,velDesired = 0; //Deduced velocities from ROS
-double omega= 0,setvelocity = 0; //As given to bot (motors)
-double theta = 0, theta_old = 0; 
+double ang_velDesired = 0, velDesired = 0; //Deduced velocities from ROS
+double omega = 0, setvelocity = 0; //As given to bot (motors)
+double theta = 0, theta_old = 0;
 float initialheading = 0, headin = 0; // For compass
-unsigned long now,lastTime = 0;
+unsigned long now, lastTime = 0;
 
-int ticksl = 0,init_ticksr = 0, ticksr = 0,oticksl = 0,oticksr = 0;
+int ticksl = 0, init_ticksr = 0, ticksr = 0, oticksl = 0, oticksr = 0;
 double dtr, dtl;
-double DistR, DistL, Dist;
+double DistR, DistL, Dist,  RPMR, RPML;
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 
 #include <Arduino.h>
 
 void printr(String s, int level) {
 #ifdef ROS_ON
-  if (level >= DEBUG_LEVEL)
+  if (level == DEBUG_PRIORITY)
     nh.loginfo(s.c_str());
 #else
-  if (level >= DEBUG_LEVEL)
+  if (level == DEBUG_PRIORITY)
     Serial.println(s);
 #endif
 }
@@ -77,7 +77,7 @@ class Motor {
       en_pin = pin2;
       dir_pin = pin3;
       cclk = stat1;
-      
+
       //pinMode(br_pin, OUTPUT);
       pinMode(dir_pin, OUTPUT);
       pinMode(pwm_pin, OUTPUT);
@@ -86,7 +86,7 @@ class Motor {
       //digitalWrite(br_pin, HIGH);
       digitalWrite(en_pin, HIGH);
       digitalWrite(dir_pin, HIGH);
-      analogWrite(pwm_pin, 30);
+      analogWrite(pwm_pin,25 );
     }
 
     void enable(boolean en) {
@@ -106,13 +106,14 @@ class Motor {
     }
 };
 
+Motor motors[2] = {Motor(9, 23, 25, 1), Motor(8, 22, 24, 0)}; //motors 1 (L), 2 (R)
+
+
 //Due QEI
 const int quad_A = 2;
 const int quad_B = 13;
 const unsigned int mask_quad_A = digitalPinToBitMask(quad_A);
 const unsigned int mask_quad_B = digitalPinToBitMask(quad_B);
-
-Motor motors[2] = {Motor(9, 23, 25, 0), Motor(8, 22, 24, 0)}; //motors 1 (l), 2 (r)
 
 geometry_msgs::Twist vel_msg;
 void velCallback(const geometry_msgs::Twist& vel_msg) {
@@ -122,7 +123,7 @@ void velCallback(const geometry_msgs::Twist& vel_msg) {
 }
 
 void manvelCallback() {
-  vx = 0.25;
+  vx = - 0.25;
   ang_velDesired = 0;
   velDesired = vx;
 }
@@ -133,27 +134,27 @@ void bot_motion(float v, float w) {
   //assuming v in input is cm/sec
   rpm[0] = (v - w * B) * 60 / (2 * PI) / R; //Left motor
   rpm[1] = (v + w * B) * 60 / (2 * PI) / R; //Right motor
-  printr("RPM-L : " + String(rpm[0]), 0);
-  printr("RPM-R : " + String(rpm[1]), 0);
-  
+  printr("RPM-L : " + String(rpm[0]), 1);
+  printr("RPM-R : " + String(rpm[1]), 1);
+
   for (int i = 0; i < 2; i++)
     motors[i].motor_move(rpm[i]);
 
 }
 
-void initMotors(){
-  #ifdef MOTOR_HIGH
-    for (int i = 0; i < 2; i++)
-      motors[i].enable(HIGH);
-  #else
-    for (int i = 0; i < 2; i++)
-      motors[i].enable(LOW);
-  #endif
+void initMotors() {
+#ifdef MOTOR_HIGH
+  for (int i = 0; i < 2; i++)
+    motors[i].enable(HIGH);
+#else
+  for (int i = 0; i < 2; i++)
+    motors[i].enable(LOW);
+#endif
 }
 
-float compassData(){
+float compassData() {
   /********************** Compass *******************/
-  #ifdef COMPASS_ON
+#ifdef COMPASS_ON
   if (!mag.begin()) {
     while (1) {
       if (mag.begin())
@@ -167,20 +168,25 @@ float compassData(){
     h += 2 * PI;
   if (h > 2 * PI)
     h -= 2 * PI;
-  
+
   return h;
-  #endif
+#endif
   return 0;
   /************************************************/
 }
 
 void setup() {
+  
+   initMotors();
 
+//Motor motors[2] = {Motor(9, 23, 25, 1), Motor(8, 22, 24, 0)}; //motors 1 (L), 2 (R)
+digitalWrite(25,HIGH);
+
+  nh.initNode();
+  nh.advertise(odom_pub);
   Serial.begin(115200);
   Serial3.begin(9600);
-  
-  initMotors();
-  
+
   delay(500);
   /*---------Enabling Registers for QEI-----------------*/
   // activate peripheral functions for quad pins
@@ -197,81 +203,73 @@ void setup() {
   // enable the clock (CLKEN=1) and reset the counter (SWTRG=1)
   // SWTRG = 1 necessary to start the clock!!
   REG_TC0_CCR0 = 5;
-  /**************************************************/  
-  
+  /**************************************************/
+
   initialheading = compassData();
-  
   /**********************Intial ticks from slave***************************/
-  Serial3.flush();
-  String  a = Serial3.readStringUntil('s');
+  String a;
+  while (!Serial3.available());
+  a = Serial3.readStringUntil('s');
   init_ticksr = atoi(a.c_str());
   /******************************************************/
-  
 
-  nh.initNode();
-  nh.advertise(odom_pub);
   nh.subscribe(sub);
   nh.spinOnce();
+  printr("setup done ",4);
 }
 
-void loop(){
+void loop() {
 
   now = millis();
   dT = (double)(now - lastTime) / 1000;
-
- Serial.println("out");
   if (dT >= 0.015) {
-    lastTime = now;  
+    lastTime = now;
     oticksl = ticksl;
     oticksr = ticksr;
-    ticksl = -(int)REG_TC0_CV0;
+    ticksl = -(int)REG_TC0_CV0 ;
 
 
-  /**********************SLAVE***************************/
-  Serial3.flush();
-  String  a = Serial3.readStringUntil('s');
-  ticksr = atoi(a.c_str());
+    /**********************SLAVE***************************/
+    String  a = Serial3.readStringUntil('s');
+    ticksr = atoi(a.c_str())-init_ticksr;
+    /******************************************************/
 
-  /******************************************************/
-    printr("ticksl : " + String(ticksl), 3);
-    printr("ticksr : " + String(ticksr), 3);
-
+    printr("ticksl : " + String(ticksl) + " ticksr : " + String(ticksr), 4);
+    
     //manvelCallback();
-
-    dtl = ticksl - oticksl;  
+    
+    dtl = ticksl - oticksl;
     dtr = ticksr - oticksr;
     DistR = 2 * PI * R * dtr / TPRR; // 10000 ticks per rotation
     DistL = 2 * PI * R * dtl / TPRL;
     Dist = (DistR + DistL) / 2;
+    RPMR = (dtr / (TPRR *dT)) * 60 ; // 10000 ticks per rotation
+    RPML = (dtl / (TPRL *dT)) * 60;
 
-    printr("dtl : " + String(dtl), 1);
-    printr("dtr : " + String(dtr), 1);
-    printr("Distr : " + String(DistL), 1);
-    printr("Distl : " + String(DistR), 1);
-    printr("velocity : " + String(setvelocity), 0);
-    printr("ang-velocity : " + String(omega), 0);
-
+    printr("dtl : " + String(dtl) + "dtr : " + String(dtr), 0);
+    printr("Distr : " + String(DistL) + "Distl : " + String(DistR), 0);
+    printr("velocity : " + String(setvelocity) + "ang-velocity : " + String(omega), 2);
+    printr("RPMR : " + String(RPMR) + " RPML : " + String(RPML),5 );
 
     /**********************COMPASS***************************/
     theta = compassData() - initialheading;
-    if(theta<0){
-      theta +=2*PI;
-    }
+    if (theta < 0)     
+      theta += 2 * PI;    
     /********************************************************/
 
     //velTh =  omega; // To debug ROS
-    velTh = (theta - theta_old)/dT;
+    velTh = (theta - theta_old) / dT;
     theta_old = theta;
-    
-    printr("theta : " + String(theta*180/PI), 3);
+
+    printr("theta : " + String(theta * 180 / PI), 4);
+   
     dy = Dist * sin(theta);
     dx = Dist * cos(theta);
     velX = dx / dT;
     velY = dy / dT;
     pose_x += dx;
     pose_y += dy;
-    printr("pose_x : " + String(pose_x), 0);
-    printr("pose_y : " + String(pose_y), 0);
+    printr("pose_x,pose_y,theta : " + String(pose_x) + "," + String(pose_y) + ","  + String(theta), 3);
 
     geometry_msgs::Quaternion odom_quat;
     odom_quat = tf::createQuaternionFromYaw(theta);
@@ -292,10 +290,11 @@ void loop(){
 
     //publish the message - ROS Publisher is here
     odom_pub.publish(&odom);
-    
+
     setvelocity = velDesired * 100; //Velocity in cm/sec
     omega = ang_velDesired; //Angular velocity in radians/sec
     bot_motion(setvelocity, omega);
-  } 
+    //bot_motion(-25,0);
+  }
   nh.spinOnce();
 }
