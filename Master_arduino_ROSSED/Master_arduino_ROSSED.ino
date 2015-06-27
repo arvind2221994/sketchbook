@@ -30,8 +30,11 @@ ros::Publisher odom_pub("odom_sub", &odom);
 #define R 20    // Wheel Radius in cm
 #define TPRL 21504  //Ticks per Rotation
 #define TPRR  21504
-#define ROS_ON
-#define DEBUG_LEVEL 2
+
+#define ROS_ON 
+#define MOTOR_HIGH 
+#define COMPASS_ON
+#define DEBUG_LEVEL 3
 double dT;
 
 float rpm[2];
@@ -64,7 +67,6 @@ void printr(String s, int level) {
 class Motor {
     unsigned int br_pin, dir_pin, pwm_pin, en_pin;
     boolean cclk;
-
   public:
     int reset;
     Motor();
@@ -74,7 +76,6 @@ class Motor {
       pwm_pin = pin1;
       en_pin = pin2;
       dir_pin = pin3;
-
       cclk = stat1;
       
       //pinMode(br_pin, OUTPUT);
@@ -113,12 +114,6 @@ const unsigned int mask_quad_B = digitalPinToBitMask(quad_B);
 
 Motor motors[2] = {Motor(9, 23, 25, 0), Motor(8, 22, 24, 0)}; //motors 1 (l), 2 (r)
 
-/*-----------------------
- motor 1 - 8, 23, 25, 27 --- 8 - pwm, 23 - enable, 25 - dir, 27 - brake
- motor 2 - 9, 22, 26, 27 --- 9 - pwm, 22 - enable, 24 - dir, 26 - brake
-  -------------------------*/
-
-
 geometry_msgs::Twist vel_msg;
 void velCallback(const geometry_msgs::Twist& vel_msg) {
   vx = vel_msg.linear.x;
@@ -146,18 +141,46 @@ void bot_motion(float v, float w) {
 
 }
 
+void initMotors(){
+  #ifdef MOTOR_HIGH
+    for (int i = 0; i < 2; i++)
+      motors[i].enable(HIGH);
+  #else
+    for (int i = 0; i < 2; i++)
+      motors[i].enable(LOW);
+  #endif
+}
+
+float compassData(){
+  /********************** Compass *******************/
+  #ifdef COMPASS_ON
+  if (!mag.begin()) {
+    while (1) {
+      if (mag.begin())
+        break;
+    }
+  }
+  sensors_event_t event;
+  mag.getEvent(&event);
+  float h = atan2(event.magnetic.x, event.magnetic.y);
+  if (h < 0)
+    h += 2 * PI;
+  if (h > 2 * PI)
+    h -= 2 * PI;
+  
+  return h;
+  #endif
+  return 0;
+  /************************************************/
+}
+
 void setup() {
 
-  nh.initNode();
-  nh.advertise(odom_pub);
-  //motors[0].enable(HIGH);
-  //motors[1].enable(HIGH);
-  motors[0].enable(LOW);
-  motors[1].enable(LOW);
-
-  Wire.begin();  // join i2c bus (address optional for master)
-  delay(250);
   Serial.begin(115200);
+  Serial3.begin(9600);
+  
+  initMotors();
+  
   delay(500);
   /*---------Enabling Registers for QEI-----------------*/
   // activate peripheral functions for quad pins
@@ -174,47 +197,19 @@ void setup() {
   // enable the clock (CLKEN=1) and reset the counter (SWTRG=1)
   // SWTRG = 1 necessary to start the clock!!
   REG_TC0_CCR0 = 5;
-
-  /********************** Compass *******************/
-  if (!mag.begin()) {
-    while (1) {
-      //ros::rospy.logerr("debug");
-      if (mag.begin())
-        break;
-    }
-  }
+  /**************************************************/  
   
-  sensors_event_t event;
-  mag.getEvent(&event);
-  headin = atan2(event.magnetic.x, event.magnetic.y);
- 
-  if (headin < 0)
-    headin += 2 * PI;
-  // Check for wrap due to addition of declination.
-  if (headin > 2 * PI)
-    headin -= 2 * PI;
-  // Convert radians to degrees for readability.
-  initialheading = headin;
-  /***************************************************/
+  initialheading = compassData();
   
-  /*********************** Slave Arduino Reset ****************************/
-    Wire.requestFrom(2, 9);    // request 6 bytes from slave device #2
-    String a;
-    
-    while (Wire.available()){   // slave may send less than requested
-      char c = Wire.read(); // receive a byte as character
-      if (c != 's') 
-        a += c; // print the character
-      
-      else 
-        break;
-      
-    }
-    
-    init_ticksr = atoi(a.c_str());
+  /**********************Intial ticks from slave***************************/
+  Serial3.flush();
+  String  a = Serial3.readStringUntil('s');
+  init_ticksr = atoi(a.c_str());
+  /******************************************************/
+  
 
-  /*************************************************************************/
-
+  nh.initNode();
+  nh.advertise(odom_pub);
   nh.subscribe(sub);
   nh.spinOnce();
 }
@@ -223,29 +218,23 @@ void loop(){
 
   now = millis();
   dT = (double)(now - lastTime) / 1000;
-  lastTime = now;
 
+ Serial.println("out");
   if (dT >= 0.015) {
-
+    lastTime = now;  
     oticksl = ticksl;
     oticksr = ticksr;
     ticksl = -(int)REG_TC0_CV0;
 
-    Wire.requestFrom(2, 10);    // request 10 bytes from slave device #2
-    String a;
-    
-    while (Wire.available()) {  // slave may send less than requested
-      char c = Wire.read(); // receive a byte as character
-      
-      if (c != 's') 
-        a += c; // print the character
-      else 
-        break;      
-    }
 
-    ticksr = atoi(a.c_str()) - init_ticksr;
-//    printr("ticksl : " + String(ticksl), 3);
-//    printr("ticksr : " + String(ticksr), 3);
+  /**********************SLAVE***************************/
+  Serial3.flush();
+  String  a = Serial3.readStringUntil('s');
+  ticksr = atoi(a.c_str());
+
+  /******************************************************/
+    printr("ticksl : " + String(ticksl), 3);
+    printr("ticksr : " + String(ticksr), 3);
 
     //manvelCallback();
 
@@ -255,47 +244,34 @@ void loop(){
     DistL = 2 * PI * R * dtl / TPRL;
     Dist = (DistR + DistL) / 2;
 
-//    printr("dtl : " + String(dtl), 1);
-//    printr("dtr : " + String(dtr), 1);
-//    printr("Distr : " + String(DistL), 1);
-//    printr("Distl : " + String(DistR), 1);
-//    printr("velocity : " + String(setvelocity), 0);
-//    printr("ang-velocity : " + String(omega), 0);
+    printr("dtl : " + String(dtl), 1);
+    printr("dtr : " + String(dtr), 1);
+    printr("Distr : " + String(DistL), 1);
+    printr("Distl : " + String(DistR), 1);
+    printr("velocity : " + String(setvelocity), 0);
+    printr("ang-velocity : " + String(omega), 0);
+
 
     /**********************COMPASS***************************/
-    sensors_event_t event;
-    mag.getEvent(&event);
-    headin = atan2(event.magnetic.x, event.magnetic.y);
-    float declinationAngle = 0;
-    headin += declinationAngle;
-    if (headin < 0) {
-      headin += 2 * PI;
-
-    }
-    //Check for wrap due to addition of declination.
-    if (headin > 2 * PI) {
-      headin -= 2 * PI;
-    }
-    theta = headin - initialheading;
+    theta = compassData() - initialheading;
     if(theta<0){
       theta +=2*PI;
     }
-
     /********************************************************/
 
     //velTh =  omega; // To debug ROS
     velTh = (theta - theta_old)/dT;
     theta_old = theta;
     
-//    printr("theta : " + String(theta), 1);
+    printr("theta : " + String(theta*180/PI), 3);
     dy = Dist * sin(theta);
     dx = Dist * cos(theta);
     velX = dx / dT;
     velY = dy / dT;
     pose_x += dx;
     pose_y += dy;
-//    printr("pose_x : " + String(pose_x), 2);
-//    printr("pose_y : " + String(pose_y), 2);
+    printr("pose_x : " + String(pose_x), 0);
+    printr("pose_y : " + String(pose_y), 0);
 
     geometry_msgs::Quaternion odom_quat;
     odom_quat = tf::createQuaternionFromYaw(theta);

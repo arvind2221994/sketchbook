@@ -30,6 +30,13 @@ B) MOTORS AND MOTOR CONTROLLERS
 >> Ensure motor enable pins are HIGH (Software)
 >> Recheck the "motor" class above --> Direction (dir) pin, enable pin and PWM pin
 >> Use Configure/PID Tuning/Diagnosis tools available in ESCON software
+>> pin configuration for due 
+
+  -----------------------
+ motor 1 (L) - 8, 23, 25, 27 --- 8 - pwm, 23 - enable, 25 - dir, 27 - brake
+ motor 2 (R) - 9, 22, 26, 27 --- 9 - pwm, 22 - enable, 24 - dir, 26 - brake
+  -------------------------
+
 
 C) ARDUINO 
 
@@ -38,13 +45,15 @@ C) ARDUINO
 >> Upload the code again and check the values
 >> Error: Unable to find device <|> Check if rosserial is running 
 >> Check the data transmission between Master Arduino and Slave Arduino (SCL/SDA)
->> Slave arduino gives initial ticks in setup() to get reset effect as and when the Master resets itself. 
+>> Slave arduino gives initial ticks in setup() to get reset effect as and when the Master resets itself
+>> Data transmission from slave arduino has been shifted from IIC/I2C (SCL/SDA) to UART (Rx/Tx) communication to avoid sync problems between master and slave after reset.
+    For only real time applications, IIC is preferred
 
 D) ROS AND ROSSERIAL
 
 >> Use ROS Hydro version for the run
 >> Error: Unable to sync with device <|> Comment all Serial.prints in the arduino code to be uploaded, before running rosserial (use printr function and comment out #define ROS_ON)
->> Match the port and the baud rate used
+>> Match the port and the baud rate used in the ROS command
 >> Error: Unable to sync with device. Possible version mismatch... <|> Define USE_USBCON in arduino code for rosserial version compatibility with "Arduino DUE"
 >> Error: Lost sync with device. Reconnecting... <|> Use enough nh.spinonce() for all the required callbacks to be called frequently
    --> Wait a little longer for the connection to establish. It takes a while for Arduino DUE
@@ -59,7 +68,21 @@ E) ODOMETRY
 >> Check the ticks per rotation set (TPRR / TPRL)
 >> Check distance (Dist), pose and velocity calculations make sure they approx match v*dt
 >> Manually rotate the wheel by exact one rotation and check the ticks obtained (Whether they approx. match with TPRs set)
->> 
+>> Use this i2c code in Master in case UART communication fails 
+  /*********************** Slave Arduino Reset ****************************
+    Wire.requestFrom(2, 9);    // request 6 bytes from slave device #2
+    String a;
+    
+    while (Wire.available()){   // slave may send less than requested
+      char c = Wire.read(); // receive a byte as character
+      if (c != 's') 
+        a += c; // print the character
+      
+      else 
+        break;
+      
+    }
+    
+    init_ticksr = atoi(a.c_str());
 
-
-*/
+  /*************************************************************************/
