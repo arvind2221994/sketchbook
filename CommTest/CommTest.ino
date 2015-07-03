@@ -32,11 +32,13 @@ void setup()
     headin -= 2 * PI;
   initialheading = headin;
   Serial.println("hello");
+  Serial.println(headin * 180 / PI);
+  delay(10000);
 }
 String a = "";
 void loop()
 {
-  /**********************SLAVE***************************//
+  /**********************SLAVE***************************
   Serial3.flush();
   a = Serial3.readStringUntil('s');
   ticks2 = atoi(a.c_str());
@@ -56,6 +58,8 @@ void loop()
   if (headin > 2 * PI)
     headin -= 2 * PI;
   theta = headin - initialheading;
+  if (theta < 0)
+    theta += 2 * PI;
   Serial.println(theta * 180 / PI);
   /********************************************************/
 }

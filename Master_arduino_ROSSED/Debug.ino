@@ -87,10 +87,10 @@ E) ODOMETRY
 
 F) DEBUG PRIORITIES
 
->> 0 - dtl,dtr,Dist:,DistR
->> 1 - RPM-L,RPM-R
+>> 0 - dtl,dtr,DistL,DistR
+>> 1 - RPM-L,RPM-R (Set)
 >> 2 - setvelocity,omega
 >> 3 - pose_x,pose_y,theta
 >> 4 - ticksl,ticksr,theta
->> 5 - RPMR,RPML
+>> 5 - RPMR,RPML (Feedback)
 */

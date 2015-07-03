@@ -31,10 +31,18 @@ ros::Publisher odom_pub("odom_sub", &odom);
 #define TPRL 21504  //Ticks per Rotation
 #define TPRR  21504
 
-#define ROS_ON
-//#define MOTOR_HIGH
+//#define ROS_ON
+#define MOTOR_HIGH
 #define COMPASS_ON
-#define DEBUG_PRIORITY 3 //Refer to Debug->section F
+#define DEBUG_PRIORITY -1 //Refer to Debug->section F
+/*
+>> 0 - dtl,dtr,DistL,DistR
+>> 1 - RPM-L,RPM-R (Set)
+>> 2 - setvelocity,omega
+>> 3 - pose_x,pose_y,theta
+>> 4 - ticksl,ticksr,theta
+>> 5 - RPMR,RPML (Feedback)
+*/
 double dT;
 
 float rpm[2];
@@ -86,7 +94,7 @@ class Motor {
       //digitalWrite(br_pin, HIGH);
       digitalWrite(en_pin, HIGH);
       digitalWrite(dir_pin, HIGH);
-      analogWrite(pwm_pin,25 );
+      analogWrite(pwm_pin, 25 );
     }
 
     void enable(boolean en) {
@@ -123,7 +131,7 @@ void velCallback(const geometry_msgs::Twist& vel_msg) {
 }
 
 void manvelCallback() {
-  vx = - 0.25;
+  vx = 0.20;
   ang_velDesired = 0;
   velDesired = vx;
 }
@@ -175,12 +183,37 @@ float compassData() {
   /************************************************/
 }
 
-void setup() {
-  
-   initMotors();
+/****************** PID *************************/
 
-//Motor motors[2] = {Motor(9, 23, 25, 1), Motor(8, 22, 24, 0)}; //motors 1 (L), 2 (R)
-digitalWrite(25,HIGH);
+float kp = 10, kd = 0, ki = 0;
+float error = 0, last_error = 0, prv_error = 0, ttl_error, output = 0, prv_output = 0;
+float PID(float setvalue, float value , float dT)
+{
+  setvalue = 20;
+  error = setvalue - value;
+if (error<-180 )
+  error = error +360 ;
+ else if (error >180)
+  error += -360; 
+  Serial.print("theta:");
+  Serial.print(value);
+  Serial.print(",");
+  Serial.print("   error:");
+  Serial.println(error);
+  
+  ttl_error =  error + prv_error;
+  output = kp * error - kd * (error - last_error) / dT + ki * ttl_error * dT;
+  prv_error = error;
+  return (output);
+}
+
+/************************************************/
+void setup() {
+
+  initMotors();
+
+  //Motor motors[2] = {Motor(9, 23, 25, 1), Motor(8, 22, 24, 0)}; //motors 1 (L), 2 (R)
+  digitalWrite(25, HIGH);
 
   nh.initNode();
   nh.advertise(odom_pub);
@@ -206,7 +239,7 @@ digitalWrite(25,HIGH);
   /**************************************************/
 
   initialheading = compassData();
-  /**********************Intial ticks from slave***************************/
+  /**********************Intial ticks from slave***************************
   String a;
   while (!Serial3.available());
   a = Serial3.readStringUntil('s');
@@ -215,7 +248,7 @@ digitalWrite(25,HIGH);
 
   nh.subscribe(sub);
   nh.spinOnce();
-  printr("setup done ",4);
+  printr("setup done ", 4);
 }
 
 void loop() {
@@ -229,40 +262,42 @@ void loop() {
     ticksl = -(int)REG_TC0_CV0 ;
 
 
-    /**********************SLAVE***************************/
+    /**********************SLAVE***************************
     String  a = Serial3.readStringUntil('s');
-    ticksr = atoi(a.c_str())-init_ticksr;
+    ticksr = atoi(a.c_str()) - init_ticksr;
     /******************************************************/
 
     printr("ticksl : " + String(ticksl) + " ticksr : " + String(ticksr), 4);
-    
-    //manvelCallback();
-    
+
+    manvelCallback();
+
     dtl = ticksl - oticksl;
     dtr = ticksr - oticksr;
     DistR = 2 * PI * R * dtr / TPRR; // 10000 ticks per rotation
     DistL = 2 * PI * R * dtl / TPRL;
     Dist = (DistR + DistL) / 2;
-    RPMR = (dtr / (TPRR *dT)) * 60 ; // 10000 ticks per rotation
-    RPML = (dtl / (TPRL *dT)) * 60;
+    RPMR = (dtr / (TPRR * dT)) * 60 ; // 10000 ticks per rotation
+    RPML = (dtl / (TPRL * dT)) * 60;
 
     printr("dtl : " + String(dtl) + "dtr : " + String(dtr), 0);
     printr("Distr : " + String(DistL) + "Distl : " + String(DistR), 0);
-    printr("velocity : " + String(setvelocity) + "ang-velocity : " + String(omega), 2);
-    printr("RPMR : " + String(RPMR) + " RPML : " + String(RPML),5 );
+    printr("velocity : " + String(setvelocity) + " , ang-velocity : " + String(omega), 2);
+    printr("RPMR : " + String(RPMR) + " RPML : " + String(RPML), 5 );
 
     /**********************COMPASS***************************/
     theta = compassData() - initialheading;
-    if (theta < 0)     
-      theta += 2 * PI;    
+    if (theta < 0)
+      theta += 2 * PI;
     /********************************************************/
 
     //velTh =  omega; // To debug ROS
     velTh = (theta - theta_old) / dT;
     theta_old = theta;
 
+    //theta = -theta; //Subject to use of compass1
+
     printr("theta : " + String(theta * 180 / PI), 4);
-   
+
     dy = Dist * sin(theta);
     dx = Dist * cos(theta);
     velX = dx / dT;
@@ -292,7 +327,9 @@ void loop() {
     odom_pub.publish(&odom);
 
     setvelocity = velDesired * 100; //Velocity in cm/sec
-    omega = ang_velDesired; //Angular velocity in radians/sec
+    float settheta = ang_velDesired * dT; //Theta ref. from ROS's angular velocity in radians/sec
+
+    omega = PID(settheta * 180 / PI, theta * 180 / PI, dT);
     bot_motion(setvelocity, omega);
     //bot_motion(-25,0);
   }
