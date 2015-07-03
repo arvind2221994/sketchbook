@@ -93,4 +93,5 @@ F) DEBUG PRIORITIES
 >> 3 - pose_x,pose_y,theta
 >> 4 - ticksl,ticksr,theta
 >> 5 - RPMR,RPML (Feedback)
+>> 6 - theta,error
 */

@@ -34,7 +34,7 @@ ros::Publisher odom_pub("odom_sub", &odom);
 //#define ROS_ON
 #define MOTOR_HIGH
 #define COMPASS_ON
-#define DEBUG_PRIORITY -1 //Refer to Debug->section F
+#define DEBUG_PRIORITY  6 //Refer to Debug->section F
 /*
 >> 0 - dtl,dtr,DistL,DistR
 >> 1 - RPM-L,RPM-R (Set)
@@ -42,10 +42,14 @@ ros::Publisher odom_pub("odom_sub", &odom);
 >> 3 - pose_x,pose_y,theta
 >> 4 - ticksl,ticksr,theta
 >> 5 - RPMR,RPML (Feedback)
+>> 6 - theta,error
 */
 double dT;
-
 float rpm[2];
+#define THETA_SIZE 10
+float thetaArr[THETA_SIZE];
+float thetaAvg;
+
 double pose_x = 0, pose_y = 0, dx = 0, dy = 0, dth = 0;
 double velX = 0, velY = 0, velTh = 0; //Global frame
 float vx = 0; //Input velocity from ROS
@@ -131,7 +135,7 @@ void velCallback(const geometry_msgs::Twist& vel_msg) {
 }
 
 void manvelCallback() {
-  vx = 0.20;
+  vx = 0.30;
   ang_velDesired = 0;
   velDesired = vx;
 }
@@ -183,31 +187,7 @@ float compassData() {
   /************************************************/
 }
 
-/****************** PID *************************/
 
-float kp = 10, kd = 0, ki = 0;
-float error = 0, last_error = 0, prv_error = 0, ttl_error, output = 0, prv_output = 0;
-float PID(float setvalue, float value , float dT)
-{
-  setvalue = 20;
-  error = setvalue - value;
-if (error<-180 )
-  error = error +360 ;
- else if (error >180)
-  error += -360; 
-  Serial.print("theta:");
-  Serial.print(value);
-  Serial.print(",");
-  Serial.print("   error:");
-  Serial.println(error);
-  
-  ttl_error =  error + prv_error;
-  output = kp * error - kd * (error - last_error) / dT + ki * ttl_error * dT;
-  prv_error = error;
-  return (output);
-}
-
-/************************************************/
 void setup() {
 
   initMotors();
@@ -239,12 +219,16 @@ void setup() {
   /**************************************************/
 
   initialheading = compassData();
-  /**********************Intial ticks from slave***************************
+  /**********************Intial ticks from slave***************************/
   String a;
   while (!Serial3.available());
   a = Serial3.readStringUntil('s');
   init_ticksr = atoi(a.c_str());
   /******************************************************/
+  
+  for(int i=0;i<THETA_SIZE;i++)
+    thetaArr[i] = 0.0;
+  thetaAvg = 0.0;
 
   nh.subscribe(sub);
   nh.spinOnce();
@@ -262,7 +246,7 @@ void loop() {
     ticksl = -(int)REG_TC0_CV0 ;
 
 
-    /**********************SLAVE***************************
+    /**********************SLAVE***************************/
     String  a = Serial3.readStringUntil('s');
     ticksr = atoi(a.c_str()) - init_ticksr;
     /******************************************************/
@@ -322,6 +306,13 @@ void loop() {
     odom.twist.angular.x = 0;
     odom.twist.angular.y = 0;
     odom.twist.angular.z = velTh;
+    
+    thetaAvg  -= (thetaArr[0]/THETA_SIZE);
+    for(int i=1;i<THETA_SIZE;i++){
+      thetaArr[i-1]=thetaArr[i];
+    }
+    thetaArr[THETA_SIZE-1]=theta;
+    thetaAvg += (theta/THETA_SIZE);
 
     //publish the message - ROS Publisher is here
     odom_pub.publish(&odom);
@@ -329,7 +320,7 @@ void loop() {
     setvelocity = velDesired * 100; //Velocity in cm/sec
     float settheta = ang_velDesired * dT; //Theta ref. from ROS's angular velocity in radians/sec
 
-    omega = PID(settheta * 180 / PI, theta * 180 / PI, dT);
+    omega = PID(settheta * 180 / PI, thetaAvg* 180 / PI, dT);
     bot_motion(setvelocity, omega);
     //bot_motion(-25,0);
   }
